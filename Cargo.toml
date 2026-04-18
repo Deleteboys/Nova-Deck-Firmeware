@@ -26,6 +26,7 @@ embassy-time = { version = "0.5.1", features = ["defmt", "defmt-timestamp-uptime
 embassy-usb = { version = "0.6.0", features = ["defmt"] }
 
 static_cell = "2.1.1"
+smart-leds = "0.4.0"
 portable-atomic = { version = "1.5", features = ["critical-section"] }
 
 # but you can use any BSP. Uncomment this to use the pro_micro_rp2040 BSP instead
