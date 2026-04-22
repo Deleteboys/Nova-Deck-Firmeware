@@ -80,12 +80,6 @@ async fn send_packet(
     Ok(())
 }
 
-pub async fn log_to_pc(text: &str) {
-    let mut s = heapless::String::new();
-    let _ = s.push_str(text);
-    let _ = USB_TX_CHANNEL.send(PicoToHost::Log(s)).await;
-}
-
 fn to_log(s: &str) -> PicoToHost {
     let mut h_string = heapless::String::<64>::new();
     let _ = h_string.push_str(s);
