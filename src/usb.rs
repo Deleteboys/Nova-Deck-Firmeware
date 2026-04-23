@@ -60,7 +60,7 @@ async fn handle_host_command(msg: HostToPico, class: &mut UsbClass) {
             embassy_time::Timer::after_millis(200).await;
             reset_to_usb_boot(0, 0);
         }
-        HostToPico::FillAll { .. } | HostToPico::SetLed { .. } => {
+        HostToPico::FillAll { .. } | HostToPico::SetLed { .. } | HostToPico::SetEffect { .. } => {
             let _ = crate::leds::LED_COMMAND_CHANNEL.try_send(msg);
         }
         HostToPico::Ping => {
