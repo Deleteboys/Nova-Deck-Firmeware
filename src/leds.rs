@@ -112,13 +112,15 @@ fn render_effect(effect: LedEffect, frame: u32, seed: &mut u32, colors: &mut [RG
                 set_all(colors, RGB8::default());
             }
         }
-        LedEffect::Rainbow { brightness, speed } => {
+        LedEffect::Rainbow { brightness, speed,saturation, reverse } => {
             let step = speed_step(speed);
             let base_hue = (frame.wrapping_mul(step)) as u8;
-            for (idx, led) in colors.iter_mut().enumerate() {
-                let hue = base_hue.wrapping_add(((idx * 256) / NUM_LEDS) as u8);
-                let raw = hsv_to_rgb(hue, 255, 255);
-                *led = apply_brightness(raw.r, raw.g, raw.b, brightness);
+            for i in 0..NUM_LEDS {
+                // Bei Reverse spiegeln wir den virtuellen Index, um die Richtung zu ändern
+                let virtual_idx = if !reverse { NUM_LEDS - 1 - i } else { i };
+                let hue = base_hue.wrapping_add(((virtual_idx * 256) / NUM_LEDS) as u8);
+                let raw = hsv_to_rgb(hue, saturation, 255);
+                colors[i] = apply_brightness(raw.r, raw.g, raw.b, brightness);
             }
         }
         LedEffect::Breathing {
@@ -146,15 +148,45 @@ fn render_effect(effect: LedEffect, frame: u32, seed: &mut u32, colors: &mut [RG
             brightness,
             speed,
             size,
+            reverse,
         } => {
             set_all(colors, RGB8::default());
-            let color = apply_brightness(r, g, b, brightness);
-            let period = chase_period_frames(speed);
-            let head = ((frame / period) as usize) % NUM_LEDS;
-            let block = size.max(1) as usize;
-            for offset in 0..block {
-                let pos = (head + offset) % NUM_LEDS;
-                colors[pos] = color;
+
+            let speed_factor = (speed as u32 * 10) + 10;
+            let total_pos = (frame.wrapping_mul(speed_factor)) >> 4;
+            let num_leds_f = (NUM_LEDS << 8) as u32;
+            let head_f = total_pos % num_leds_f;
+
+            let block_size = size.max(1) as i32;
+
+            for i in 0..NUM_LEDS {
+                let led_pos_f = (i << 8) as i32;
+                let head_pos_f = head_f as i32;
+
+                let mut dist = led_pos_f - head_pos_f;
+                if dist < -(num_leds_f as i32 / 2) { dist += num_leds_f as i32; }
+                if dist > (num_leds_f as i32 / 2) { dist -= num_leds_f as i32; }
+
+                let intensity = if dist >= 0 && dist < (block_size << 8) {
+                    255
+                } else if dist < 0 && dist > -256 {
+                    (256 + dist) as u8
+                } else if dist >= (block_size << 8) && dist < ((block_size + 1) << 8) {
+                    (256 - (dist - (block_size << 8))) as u8
+                } else {
+                    0
+                };
+
+                if intensity > 0 {
+                    // Spiegelung der tatsächlichen Ausgabe auf dem LED-Strip
+                    let target_idx = if reverse { NUM_LEDS - 1 - i } else { i };
+                    colors[target_idx] = apply_brightness(
+                        scale(r, intensity),
+                        scale(g, intensity),
+                        scale(b, intensity),
+                        brightness
+                    );
+                }
             }
         }
         LedEffect::Comet {
@@ -164,15 +196,33 @@ fn render_effect(effect: LedEffect, frame: u32, seed: &mut u32, colors: &mut [RG
             brightness,
             speed,
             tail,
+            reverse,
         } => {
             set_all(colors, RGB8::default());
-            let period = comet_period_frames(speed);
-            let head = ((frame / period) as usize) % NUM_LEDS;
-            let tail_len = tail.max(1) as usize;
-            for i in 0..=tail_len {
-                let idx = (head + NUM_LEDS - (i % NUM_LEDS)) % NUM_LEDS;
-                let fade = 255u8.saturating_sub(((i * 255) / (tail_len + 1)) as u8);
-                colors[idx] = apply_brightness(r, g, b, scale(brightness, fade));
+
+            let speed_factor = (speed as u32 * 10) + 20;
+            let total_pos = (frame.wrapping_mul(speed_factor)) >> 4;
+            let num_leds_f = (NUM_LEDS << 8) as i32;
+            let head_f = (total_pos % num_leds_f as u32) as i32;
+
+            let tail_len_f = (tail.max(1) as i32) << 8;
+
+            for i in 0..NUM_LEDS {
+                let led_pos_f = (i << 8) as i32;
+
+                let mut dist = head_f - led_pos_f;
+                if dist < -(num_leds_f / 2) { dist += num_leds_f; }
+                if dist > (num_leds_f / 2) { dist -= num_leds_f; }
+
+                let target_idx = if reverse { NUM_LEDS - 1 - i } else { i };
+
+                if dist >= 0 && dist <= tail_len_f {
+                    let intensity = 255 - ((dist * 255) / tail_len_f) as u8;
+                    colors[target_idx] = apply_brightness(r, g, b, scale(brightness, intensity));
+                } else if dist < 0 && dist > -256 {
+                    let intensity = (256 + dist) as u8;
+                    colors[target_idx] = apply_brightness(r, g, b, scale(brightness, intensity));
+                }
             }
         }
         LedEffect::Sparkle {
@@ -193,15 +243,16 @@ fn render_effect(effect: LedEffect, frame: u32, seed: &mut u32, colors: &mut [RG
                 colors[pos] = color;
             }
         }
-        LedEffect::Aurora { brightness, speed } => {
+        LedEffect::Aurora { brightness, speed, reverse } => {
             let shift = ((frame.wrapping_mul(speed_step(speed))) & 0xff) as u8;
-            for (idx, led) in colors.iter_mut().enumerate() {
-                let hue = shift.wrapping_add((idx as u8).wrapping_mul(17));
-                let wave = tri_wave(frame as u8, speed, idx as u8);
+            for i in 0..NUM_LEDS {
+                let virtual_idx = if !reverse { NUM_LEDS - 1 - i } else { i };
+                let hue = shift.wrapping_add((virtual_idx as u8).wrapping_mul(17));
+                let wave = tri_wave(frame as u8, speed, virtual_idx as u8);
                 let sat = 180u8.saturating_add(wave / 3);
                 let val = 40u8.saturating_add((wave as u16 * 215 / 255) as u8);
                 let raw = hsv_to_rgb(hue, sat, val);
-                *led = apply_brightness(raw.r, raw.g, raw.b, brightness);
+                colors[i] = apply_brightness(raw.r, raw.g, raw.b, brightness);
             }
         }
         LedEffect::ColorOrbit {
@@ -210,16 +261,18 @@ fn render_effect(effect: LedEffect, frame: u32, seed: &mut u32, colors: &mut [RG
             saturation,
             brightness,
             speed,
+            reverse,
         } => {
             let period = orbit_period_frames(speed);
             let rot = (frame / period) as u8;
-            for (idx, led) in colors.iter_mut().enumerate() {
-                let offset = ((idx * 256) / NUM_LEDS) as u8;
+            for i in 0..NUM_LEDS {
+                let virtual_idx = if !reverse { NUM_LEDS - 1 - i } else { i };
+                let offset = ((virtual_idx * 256) / NUM_LEDS) as u8;
                 let phase = rot.wrapping_add(offset);
                 let mix = smooth_wave8(phase);
                 let current_hue = hue.wrapping_add(scale(hue_shift, mix));
                 let raw = hsv_to_rgb(current_hue, saturation, 255);
-                *led = apply_brightness(raw.r, raw.g, raw.b, brightness);
+                colors[i] = apply_brightness(raw.r, raw.g, raw.b, brightness);
             }
         }
         LedEffect::Astolfo {
@@ -227,14 +280,14 @@ fn render_effect(effect: LedEffect, frame: u32, seed: &mut u32, colors: &mut [RG
             speed,
             saturation,
             spread,
+            reverse,
         } => {
-            // Pastel pink <-> cyan wave with a sinus-like brightness pulse.
-            // Run this effect ~3x faster than before so movement is clearly visible.
             let period = orbit_period_frames(speed);
             let rot = ((frame.wrapping_mul(3)) / period) as u16;
             let phase_span = astolfo_phase_span(spread);
-            for (idx, led) in colors.iter_mut().enumerate() {
-                let offset = ((idx as u16 * phase_span) / NUM_LEDS as u16) as u16;
+            for i in 0..NUM_LEDS {
+                let virtual_idx = if !reverse { NUM_LEDS - 1 - i } else { i };
+                let offset = ((virtual_idx as u16 * phase_span) / NUM_LEDS as u16) as u16;
                 let phase = rot.wrapping_add(offset) as u8;
                 let mix = smooth_wave8(phase);
                 let hue = lerp8(236, 150, mix);
@@ -243,7 +296,7 @@ fn render_effect(effect: LedEffect, frame: u32, seed: &mut u32, colors: &mut [RG
                 let value = 90u8.saturating_add(scale(165, pulse));
 
                 let raw = hsv_to_rgb(hue, saturation, value);
-                *led = apply_brightness(raw.r, raw.g, raw.b, brightness);
+                colors[i] = apply_brightness(raw.r, raw.g, raw.b, brightness);
             }
         }
     }
@@ -270,8 +323,7 @@ fn orbit_period_frames(speed: u8) -> u32 {
 }
 
 fn astolfo_phase_span(spread: u8) -> u16 {
-    // Low spread => stretched colors (fewer repeats), high spread => tighter pattern (more repeats).
-    64 + ((spread as u16 * 320) / 255)
+    64 + ((spread as u32 * 320) / 255) as u16
 }
 
 fn hsv_to_rgb(h: u8, s: u8, v: u8) -> RGB8 {
