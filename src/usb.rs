@@ -60,8 +60,31 @@ async fn handle_host_command(msg: HostToPico, class: &mut UsbClass) {
             embassy_time::Timer::after_millis(200).await;
             reset_to_usb_boot(0, 0);
         }
-        HostToPico::FillAll { .. } | HostToPico::SetLed { .. } | HostToPico::SetEffect { .. } => {
-            let _ = crate::leds::LED_COMMAND_CHANNEL.try_send(msg);
+        HostToPico::FillAll { .. } | HostToPico::SetLed { .. } => {
+            crate::leds::LED_COMMAND_CHANNEL.send(msg).await;
+        }
+        HostToPico::SetEffect { effect } => {
+            crate::leds::LED_COMMAND_CHANNEL
+                .send(HostToPico::SetEffect { effect })
+                .await;
+            crate::config::CONFIG_COMMAND_CHANNEL
+                .send(crate::config::ConfigCommand::SaveLedEffect(effect))
+                .await;
+        }
+        HostToPico::GetConfig => {
+            crate::config::CONFIG_COMMAND_CHANNEL
+                .send(crate::config::ConfigCommand::SendConfigToHost)
+                .await;
+        }
+        HostToPico::SetConfig { config } => {
+            crate::leds::LED_COMMAND_CHANNEL
+                .send(HostToPico::SetEffect {
+                    effect: config.led_effect,
+                })
+                .await;
+            crate::config::CONFIG_COMMAND_CHANNEL
+                .send(crate::config::ConfigCommand::SetConfig(config))
+                .await;
         }
         HostToPico::Ping => {
             let _ = send_packet(class, &to_log("Pong!")).await;

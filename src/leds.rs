@@ -18,11 +18,14 @@ enum LedMode {
 }
 
 #[embassy_executor::task]
-pub async fn led_task(mut ws2812: LedBus) {
+pub async fn led_task(mut ws2812: LedBus, initial_effect: LedEffect) {
     let mut colors = [RGB8::default(); NUM_LEDS];
-    let mut mode = LedMode::Manual;
+    let mut mode = LedMode::Effect(initial_effect);
     let mut frame: u32 = 0;
     let mut noise_seed: u32 = 0x1234_abcd;
+
+    render_effect(initial_effect, frame, &mut noise_seed, &mut colors);
+    ws2812.write(&colors).await;
 
     loop {
         match with_timeout(FRAME_TIME, LED_COMMAND_CHANNEL.receive()).await {
@@ -56,7 +59,10 @@ pub async fn led_task(mut ws2812: LedBus) {
                     render_effect(effect, frame, &mut noise_seed, &mut colors);
                     ws2812.write(&colors).await;
                 }
-                HostToPico::Ping | HostToPico::StartBootloader => {}
+                HostToPico::Ping
+                | HostToPico::StartBootloader
+                | HostToPico::GetConfig
+                | HostToPico::SetConfig { .. } => {}
             },
             Err(_) => {
                 if let LedMode::Effect(effect) = mode {

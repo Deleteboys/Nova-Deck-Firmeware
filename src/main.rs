@@ -1,11 +1,11 @@
 #![no_std]
 #![no_main]
 
+mod config;
 mod display;
 mod inputs;
 mod leds;
 mod protocol;
-mod state;
 mod usb;
 mod vibration;
 
@@ -15,7 +15,7 @@ use embassy_rp::bind_interrupts;
 use embassy_rp::dma::InterruptHandler as DmaInterruptHandler;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::i2c::{Config as I2cConfig, I2c};
-use embassy_rp::peripherals::{DMA_CH0, PIO0, USB};
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIO0, USB};
 use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio};
 use embassy_rp::pio_programs::ws2812::{PioWs2812, PioWs2812Program};
 use embassy_rp::usb::{Driver, InterruptHandler as UsbInterruptHandler};
@@ -31,7 +31,7 @@ const ONBOARD_BLINK_MS: u64 = 500;
 bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => UsbInterruptHandler<USB>;
     PIO0_IRQ_0 => PioInterruptHandler<PIO0>;
-    DMA_IRQ_0 => DmaInterruptHandler<DMA_CH0>;
+    DMA_IRQ_0 => DmaInterruptHandler<DMA_CH0>, DmaInterruptHandler<DMA_CH1>;
 });
 
 #[embassy_executor::main]
@@ -73,9 +73,20 @@ async fn main(spawner: Spawner) {
         &program,
     );
 
+    let flash = embassy_rp::flash::Flash::<_, _, { 2 * 1024 * 1024 }>::new(
+        p.FLASH,
+        p.DMA_CH1,
+        Irqs,
+    );
+    let mut config_storage = config::new_storage(flash);
+    let device_config = config::load_config(&mut config_storage).await;
+
     spawner.spawn(usb::usb_driver_task(usb_device).unwrap());
     spawner.spawn(usb::usb_comm_task(class).unwrap());
-    spawner.spawn(leds::led_task(ws2812).unwrap());
+    spawner
+        .spawn(config::config_task(config_storage, device_config).unwrap());
+    spawner
+        .spawn(leds::led_task(ws2812, device_config.led_effect).unwrap());
 
     let i2c_display = I2c::new_blocking(p.I2C0, p.PIN_21, p.PIN_20, I2cConfig::default());
     spawner

@@ -82,10 +82,38 @@ pub enum LedEffect {
     },
 }
 
+impl Default for LedEffect {
+    fn default() -> Self {
+        LedEffect::Rainbow {
+            brightness: 160,
+            speed: 96,
+            saturation: 255,
+            reverse: false,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub struct DeviceConfig {
+    pub led_effect: LedEffect,
+}
+
+impl Default for DeviceConfig {
+    fn default() -> Self {
+        Self {
+            led_effect: LedEffect::default(),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum HostToPico {
     Ping,
     StartBootloader,
+    GetConfig,
+    SetConfig {
+        config: DeviceConfig,
+    },
     FillAll {
         r: u8,
         g: u8,
@@ -109,5 +137,8 @@ pub enum PicoToHost {
     Hello,
     EncoderTurned { id: u8, delta: i8 },
     ButtonChanged { id: u8, pressed: bool },
+    Config { config: DeviceConfig },
+    ConfigSaved,
+    ConfigSaveFailed,
     Log(heapless::String<64>),
 }
