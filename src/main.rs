@@ -8,6 +8,7 @@ mod leds;
 mod protocol;
 mod usb;
 mod vibration;
+mod state;
 
 use defmt_rtt as _;
 use embassy_executor::Spawner;

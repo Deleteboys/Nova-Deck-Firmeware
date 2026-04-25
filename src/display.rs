@@ -6,6 +6,19 @@ use embassy_sync::channel::Channel;
 pub enum DisplayCommand {
     Suspend,
     Resume,
+    UpdateVolume { slot: u8, volume: u8 },
+    UpdateIcon { slot: u8, icon: IconType },
+    UpdateMute { slot: u8, muted: bool },
+    SetProfileName(&'static str),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum IconType {
+    Master,
+    Spotify,
+    Discord,
+    Browser,
+    None,
 }
 
 pub static DISPLAY_COMMAND_CHANNEL: Channel<ThreadModeRawMutex, DisplayCommand, 2> = Channel::new();
@@ -81,60 +94,131 @@ const ICON_BROWSER: [&str; 14] = [
     "              ",
 ];
 
-const VOLUMES: [u8; 4] = [50, 65, 80, 35];
-
 #[embassy_executor::task]
 pub async fn display_task(mut i2c: I2c<'static, I2C0, Blocking>) {
     let addr = probe_addr(&mut i2c).unwrap_or(0x3c);
     init_sh1106(&mut i2c, addr);
 
     let mut frame = [0u8; FRAME_SIZE];
-    render_mockup(&mut frame, false);
+    let mut state = crate::state::DisplayState::default();
+
+    // Initiales Zeichnen des Bildschirms
+    render_screen(&mut frame, &state);
     let _ = write_frame(&mut i2c, addr, &frame);
 
     loop {
         match DISPLAY_COMMAND_CHANNEL.receive().await {
+            DisplayCommand::UpdateVolume { slot, volume } => {
+                if slot < 4 {
+                    state.slots[slot as usize].volume = volume;
+                    render_screen(&mut frame, &state);
+                    let _ = write_frame(&mut i2c, addr, &frame);
+                }
+            }
+            DisplayCommand::UpdateIcon { slot, icon } => {
+                if slot < 4 {
+                    state.slots[slot as usize].icon = icon;
+                    render_screen(&mut frame, &state);
+                    let _ = write_frame(&mut i2c, addr, &frame);
+                }
+            }
+            DisplayCommand::UpdateMute { slot, muted } => {
+                if slot < 4 {
+                    state.slots[slot as usize].muted = muted;
+                    render_screen(&mut frame, &state);
+                    let _ = write_frame(&mut i2c, addr, &frame);
+                }
+            }
+            DisplayCommand::SetProfileName(name) => {
+                state.profile_name = name;
+                render_screen(&mut frame, &state);
+                let _ = write_frame(&mut i2c, addr, &frame);
+            }
             DisplayCommand::Suspend => {
-                fill(&mut frame, false);
+                fill(&mut frame, false); // Alles aus
                 let _ = write_frame(&mut i2c, addr, &frame);
             }
             DisplayCommand::Resume => {
-                render_mockup(&mut frame, false);
+                render_screen(&mut frame, &state);
                 let _ = write_frame(&mut i2c, addr, &frame);
             }
         }
     }
 }
 
-fn render_mockup(frame: &mut [u8; FRAME_SIZE], simple_mode: bool) {
-    let (bg, fg, profile) = if simple_mode {
-        (true, false, "PROFIL: BASIC")
-    } else {
-        (false, true, "PROFIL: MAIN")
-    };
-    fill(frame, bg);
-    draw_text_centered(frame, 1, profile, fg);
-    draw_dashed_hline(frame, 16, 0, DISPLAY_WIDTH - 1, 2, fg);
+fn render_screen(frame: &mut [u8; FRAME_SIZE], state: &crate::state::DisplayState) {
+    // 1. Framebuffer leeren (Hintergrund schwarz)
+    fill(frame, false);
+
+    draw_text_centered(frame, 0, state.profile_name, true);
+
+    // 2. Eine horizontale Trennlinie ziehen (unter dem leeren Header-Bereich)
+    draw_dashed_hline(frame, 10, 0, DISPLAY_WIDTH - 1, 2, true);
+
     let segment_width = DISPLAY_WIDTH / 4;
-    let icons = [ICON_MASTER, ICON_SPOTIFY, ICON_DISCORD, ICON_BROWSER];
 
     for i in 0..4 {
         let x_start = i * segment_width;
-        if i > 0 {
-            draw_dashed_vline(frame, x_start, 20, DISPLAY_HEIGHT - 1, 1, 2, fg);
-        }
+        let slot = &state.slots[i];
+
+        // Koordinaten für das Icon (zentriert im 32-Pixel Segment)
         let icon_x = x_start + 9;
-        draw_icon(frame, icon_x, 22, &icons[i], fg);
-        let mut vol = [0u8; 4];
-        let vol_len = volume_to_ascii(VOLUMES[i], &mut vol);
-        draw_text_centered_in_range(
-            frame,
-            6,
-            &vol[..vol_len],
-            x_start,
-            x_start + segment_width - 1,
-            fg,
-        );
+        let icon_y = 20;
+
+        // 3. Vertikale Trennlinien zwischen den Slots (nicht vor dem ersten Slot)
+        if i > 0 {
+            draw_dashed_vline(frame, x_start, 15, DISPLAY_HEIGHT - 1, 1, 2, true);
+        }
+
+        // 4. Icon auswählen und zeichnen
+        let icon_data = match slot.icon {
+            crate::display::IconType::Master => &ICON_MASTER,
+            crate::display::IconType::Spotify => &ICON_SPOTIFY,
+            crate::display::IconType::Discord => &ICON_DISCORD,
+            crate::display::IconType::Browser => &ICON_BROWSER,
+            crate::display::IconType::None => &["              "; 14],
+        };
+        draw_icon(frame, icon_x, icon_y, icon_data, true);
+
+        // 5. Mute-X zeichnen (falls gemutet)
+        if slot.muted {
+            // Wir zeichnen ein X direkt über das 14x14 Icon-Feld
+            for d in 0..14 {
+                // Diagonale von oben-links nach unten-rechts (\)
+                put_pixel(frame, icon_x + d, icon_y + d, true);
+                // Ein Pixel Versatz für ein dickeres, besser sichtbares X
+                if d < 13 { put_pixel(frame, icon_x + d + 1, icon_y + d, true); }
+
+                // Diagonale von oben-rechts nach unten-links (/)
+                put_pixel(frame, icon_x + 13 - d, icon_y + d, true);
+                if d > 0 { put_pixel(frame, icon_x + 13 - d - 1, icon_y + d, true); }
+            }
+        }
+
+        // 6. Lautstärketext oder "---" zeichnen
+        let mut vol_buf = [0u8; 4];
+        if slot.volume == 255 {
+            // Platzhalter, wenn keine Daten vom PC vorliegen
+            draw_text_centered_in_range(
+                frame,
+                6, // Page 6 (unterer Bereich)
+                b"---",
+                x_start,
+                x_start + segment_width - 1,
+                true,
+            );
+        } else {
+            // Normalen Prozentwert umwandeln und anzeigen
+            let vol_len = volume_to_ascii(slot.volume, &mut vol_buf);
+            draw_text_centered_in_range(
+                frame,
+                6,
+                &vol_buf[..vol_len],
+                x_start,
+                x_start + segment_width - 1,
+                true,
+            );
+        }
     }
 }
 
@@ -221,7 +305,7 @@ fn draw_text(frame: &mut [u8; FRAME_SIZE], page: usize, col: usize, text: &[u8],
         if cursor + 6 > DISPLAY_WIDTH {
             break;
         }
-        let glyph = font_5x7(ch);
+        let glyph = font_5x7(ch.to_ascii_uppercase());
         for (dx, bits) in glyph.iter().enumerate() {
             for dy in 0..7 {
                 if (bits >> dy) & 1 != 0 {
@@ -358,6 +442,8 @@ fn font_5x7(c: u8) -> [u8; 5] {
         b'R' => [0x7f, 0x09, 0x19, 0x29, 0x46],
         b'S' => [0x46, 0x49, 0x49, 0x49, 0x31],
         b'K' => [0x7f, 0x08, 0x14, 0x22, 0x41],
+        b':' => [0x00, 0x00, 0x24, 0x00, 0x00],
+        b'-' => [0x08, 0x08, 0x08, 0x08, 0x08],
         _ => [0x00, 0x00, 0x5f, 0x00, 0x00],
     }
 }
