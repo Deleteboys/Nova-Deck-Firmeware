@@ -178,6 +178,16 @@ fn render_screen(frame: &mut [u8; FRAME_SIZE], state: &crate::state::DisplayStat
             IconType::Browser => &ICON_BROWSER,
             IconType::None => &["              "; 14],
         };
+
+
+        let icon_width = icon_data[0].len();
+        let icon_x = x_start + (segment_width - icon_width) / 2;
+        let icon_y = 20;
+
+        // 3. Zeichnen
+        if i > 0 {
+            draw_dashed_vline(frame, x_start, 15, DISPLAY_HEIGHT - 1, 1, 2, true);
+        }
         draw_icon(frame, icon_x, icon_y, icon_data, true);
 
         // 5. Mute-X zeichnen (falls gemutet)
