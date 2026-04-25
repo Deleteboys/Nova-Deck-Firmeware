@@ -172,26 +172,35 @@ fn render_screen(frame: &mut [u8; FRAME_SIZE], state: &crate::state::DisplayStat
 
         // 4. Icon auswählen und zeichnen
         let icon_data = match slot.icon {
-            crate::display::IconType::Master => &ICON_MASTER,
-            crate::display::IconType::Spotify => &ICON_SPOTIFY,
-            crate::display::IconType::Discord => &ICON_DISCORD,
-            crate::display::IconType::Browser => &ICON_BROWSER,
-            crate::display::IconType::None => &["              "; 14],
+            IconType::Master => &ICON_MASTER,
+            IconType::Spotify => &ICON_SPOTIFY,
+            IconType::Discord => &ICON_DISCORD,
+            IconType::Browser => &ICON_BROWSER,
+            IconType::None => &["              "; 14],
         };
         draw_icon(frame, icon_x, icon_y, icon_data, true);
 
         // 5. Mute-X zeichnen (falls gemutet)
         if slot.muted {
-            // Wir zeichnen ein X direkt über das 14x14 Icon-Feld
+            // Wir zeichnen ein massives X über das 14x14 Icon-Feld
             for d in 0..14 {
-                // Diagonale von oben-links nach unten-rechts (\)
-                put_pixel(frame, icon_x + d, icon_y + d, true);
-                // Ein Pixel Versatz für ein dickeres, besser sichtbares X
-                if d < 13 { put_pixel(frame, icon_x + d + 1, icon_y + d, true); }
+                // --- Diagonale von oben-links nach unten-rechts (\) ---
+                put_pixel(frame, icon_x + d, icon_y + d, true); // Die mittlere Linie
+                if d > 0 {
+                    put_pixel(frame, icon_x + d - 1, icon_y + d, true); // Pixel links daneben
+                }
+                if d < 13 {
+                    put_pixel(frame, icon_x + d + 1, icon_y + d, true); // Pixel rechts daneben
+                }
 
-                // Diagonale von oben-rechts nach unten-links (/)
-                put_pixel(frame, icon_x + 13 - d, icon_y + d, true);
-                if d > 0 { put_pixel(frame, icon_x + 13 - d - 1, icon_y + d, true); }
+                // --- Diagonale von oben-rechts nach unten-links (/) ---
+                put_pixel(frame, icon_x + 13 - d, icon_y + d, true); // Die mittlere Linie
+                if d > 0 {
+                    put_pixel(frame, icon_x + 13 - d + 1, icon_y + d, true); // Pixel rechts daneben
+                }
+                if d < 13 {
+                    put_pixel(frame, icon_x + 13 - d - 1, icon_y + d, true); // Pixel links daneben
+                }
             }
         }
 
