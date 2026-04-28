@@ -43,6 +43,11 @@ jobs:
         with:
           tool: cargo-edit
 
+      - name: Install flip-link
+        uses: taiki-e/install-action@v2
+        with:
+          tool: flip-link
+
       - name: Bump Version & Push Tag
         id: bump
         run: |
