@@ -91,6 +91,14 @@ async fn handle_host_command(msg: HostToPico, class: &mut UsbClass) {
                 .send(crate::config::ConfigCommand::SendConfigToHost)
                 .await;
         }
+        HostToPico::GetVersion => {
+            let version_str = env!("CARGO_PKG_VERSION");
+
+            let mut version = heapless::String::<16>::new();
+            let _ = version.push_str(version_str);
+
+            let _ = USB_TX_CHANNEL.try_send(PicoToHost::Version { version });
+        }
         HostToPico::SetConfig { config } => {
             crate::leds::LED_COMMAND_CHANNEL
                 .send(crate::leds::LedCommand::HostCommand(

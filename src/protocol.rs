@@ -127,6 +127,7 @@ pub enum HostToPico {
     Ping,
     StartBootloader,
     GetConfig,
+    GetVersion,
     SetConfig {
         config: DeviceConfig,
     },
@@ -173,4 +174,5 @@ pub enum PicoToHost {
     ConfigSaved,
     ConfigSaveFailed,
     Log(heapless::String<64>),
+    Version { version: heapless::String<16> },
 }
