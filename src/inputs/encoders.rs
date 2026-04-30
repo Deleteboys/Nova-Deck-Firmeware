@@ -41,6 +41,10 @@ pub async fn encoder_task(mut encoders: EncoderBank, mut encoder_buttons: Encode
             prev_state[id] = state;
 
             if delta != 0 {
+                if (delta > 0 && accum[id] < 0) || (delta < 0 && accum[id] > 0) {
+                    accum[id] = 0;
+                }
+                
                 accum[id] += delta;
 
                 while accum[id] >= STEPS_PER_DETENT {
