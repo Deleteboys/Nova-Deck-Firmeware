@@ -6,7 +6,6 @@ use embassy_rp::gpio::Input;
 use embassy_time::{Duration,Timer};
 use crate::inputs::debouncer::Debouncer;
 use crate::keyboard::KeyboardMapper;
-use crate::vibration::VibrationPattern::Medium;
 
 const BUTTON_COUNT: usize = 8;
 const POLL_INTERVAL: Duration = Duration::from_millis(2);

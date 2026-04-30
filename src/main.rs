@@ -13,12 +13,13 @@ mod usb;
 mod vibration;
 
 use defmt_rtt as _;
-use embassy_executor::Spawner;
+use embassy_executor::{Executor, Spawner};
 use embassy_rp::bind_interrupts;
 use embassy_rp::dma::InterruptHandler as DmaInterruptHandler;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::i2c::InterruptHandler as I2cInterruptHandler;
 use embassy_rp::i2c::{Config as I2cConfig, I2c};
+use embassy_rp::multicore::{spawn_core1, Stack};
 use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, I2C0, PIO0, USB};
 use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio};
 use embassy_rp::pio_programs::ws2812::{PioWs2812, PioWs2812Program};
@@ -33,6 +34,9 @@ use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
 const USB_EP0_PACKET_SIZE: u8 = 64;
 const CDC_PACKET_SIZE: u16 = 64;
 const ONBOARD_BLINK_MS: u64 = 500;
+
+static CORE1_EXECUTOR: StaticCell<Executor> = StaticCell::new();
+static mut CORE1_STACK: Stack<8192> = Stack::new();
 
 bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => UsbInterruptHandler<USB>;
@@ -105,12 +109,22 @@ async fn main(spawner: Spawner) {
     spawner.spawn(usb::usb_comm_task(class).unwrap());
     spawner.spawn(config::config_task(config_storage, device_config).unwrap());
     spawner.spawn(keyboard::usb_hid_task(hid_writer).unwrap());
-    spawner.spawn(leds::led_task(ws2812, device_config.led_effect).unwrap());
 
     let mut i2c_config = I2cConfig::default();
     i2c_config.frequency = 400_000;
     let i2c_display = I2c::new_async(p.I2C0, p.PIN_21, p.PIN_20, Irqs, i2c_config);
-    spawner.spawn(display::display_task(i2c_display).unwrap()); // Angepasster Name
+
+    spawn_core1(
+        p.CORE1,
+        unsafe { &mut *core::ptr::addr_of_mut!(CORE1_STACK) },
+        move || {
+            let executor = CORE1_EXECUTOR.init(Executor::new());
+            executor.run(|spawner| {
+                spawner.spawn(display::display_task(i2c_display).unwrap());
+                spawner.spawn(leds::led_task(ws2812, device_config.led_effect).unwrap());
+            });
+        },
+    );
 
     let buttons = [
         Input::new(p.PIN_0, Pull::Up),
