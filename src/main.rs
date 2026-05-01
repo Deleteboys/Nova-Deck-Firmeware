@@ -51,8 +51,8 @@ async fn main(spawner: Spawner) {
 
     let driver = Driver::new(p.USB, Irqs);
     let mut config = UsbConfig::new(0xc0de, 0xcafe);
-    config.manufacturer = Some("Stream Deck Labor");
-    config.product = Some("Pico Streamdeck");
+    config.manufacturer = Some("Nova Deck");
+    config.product = Some("Nova Deck V1");
     config.serial_number = Some("123456");
     config.max_packet_size_0 = USB_EP0_PACKET_SIZE;
 
